@@ -1,0 +1,170 @@
+---
+title: "InClass04_join_twdemo_referendum"
+author: "Jilung Hsieh"
+date: "2019/10/07"
+output: 
+    html_document:
+        theme: lumen
+        toc: true
+        number_sections: true
+        toc_float:
+          collapsed: false
+          smooth_scroll: false
+---
+
+* https://rfrd-tw.github.io/
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading pkgs
+```{r, message=FALSE}
+library(tidyverse)
+options(stringsAsFactors = F)
+```
+
+
+# Reading CSV
+```{r, message=FALSE}
+raw <- read_csv("data/opendata107Y030.csv") %>%
+    slice(-1) %>%
+    mutate(vname  = paste0(site_id, village)) %>%
+    select(statistic_yyy, vname, everything())
+raw %>% head(3) %>% glimpse()
+raw %>% colnames()
+```
+
+# Tidying data
+```{r, message=FALSE}
+raw_single <- raw %>%
+    select(statistic_yyy, vname, district_code, site_id, village, matches("age"))
+
+raw_single_long <- 
+    raw_single %>%
+    gather(key = "key", value = "n", -c(statistic_yyy, vname, district_code, site_id, village))
+
+raw_single_long %>%
+    separate(col = "key", into = c("married", "ageLower", "ageUpper", "gender"), sep = "_")
+
+set.seed(20)
+raw_single_long %>% sample_n(10)
+
+raw_single_long %>%
+    count(key)
+
+raw_single_long %>%
+    mutate(description = str_replace(key, "15down", "0_14")) %>%
+    mutate(description = str_replace(key, "100up", "100_105")) %>%
+    separate(col = "key", into = c("married", "age", "ageLower", "ageUpper", "gender"), sep = "_")
+```
+
+```{r, message=FALSE}
+raw %>% colnames()
+raw_long <-
+    raw %>%
+    gather(key = "key", "value", -c(statistic_yyy, vname, district_code, site_id, village))
+
+set.seed(20)
+raw_long %>% sample_n(10)
+# single_age_75_79_m 煩死了
+
+tidy_data_tmp <- raw_long %>%
+    mutate(key = str_replace(key, "15down", "0_14")) %>%
+    mutate(key = str_replace(key, "100up", "100_105")) %>%
+    mutate(key = str_replace(key, "single_age", "single")) %>%
+    separate(key, c("married", "ageLower", "ageUpper", "gender"))
+tidy_data <- tidy_data_tmp %>% 
+    mutate(ageLower = as.numeric(ageLower),
+           ageUpper = as.numeric(ageUpper),
+           value = as.numeric(value)) %>%
+    arrange(vname)
+```
+
+
+# Summarizing by villages
+```{r, message=FALSE}
+tidy_data %>%
+    filter(str_detect(vname, "大安區") & str_detect(vname, "北"))
+
+village_stat <- tidy_data %>%
+    filter(ageLower >= 20) %>%
+    group_by(district_code) %>%
+    summarise(
+        people = sum(value),
+        elderSum = sum(value[ageLower >= 65]),
+        marriedSum = sum(value[!married %in% ("single")])
+        ) %>%
+    ungroup() %>%
+    mutate(elderPerc = elderSum / people,
+           marriedPerc = marriedSum / people)
+```
+
+
+# Merging original data fields
+```{r, message=FALSE}
+village_stat_join <- village_stat %>%
+    left_join(raw %>% select(statistic_yyy, district_code, vname, site_id, village), 
+              by = "district_code")
+```
+
+
+# Stat by towns
+```{r, message=FALSE}
+town_stat <- tidy_data %>%
+    filter(ageLower >= 20) %>%
+    group_by(site_id) %>%
+    summarise(
+        people = sum(value),
+        elderSum = sum(value[ageLower >= 65]),
+        marriedSum = sum(value[!married %in% ("single")])
+        ) %>%
+    ungroup() %>%
+    mutate(elderPerc = elderSum / people,
+           marriedPerc = marriedSum / people)
+
+```
+
+
+
+## (Option) Visualization
+```{r, message=FALSE}
+town_stat %>%
+    ggplot() + 
+    aes(marriedPerc, elderPerc) + 
+    geom_jitter(alpha=0.5, color="blue")
+```
+
+
+# Loading referendum data
+```{r, message=FALSE}
+ref10 <- read_csv("data/referendum_byTown/ref10.csv")
+colnames(ref10)
+names(ref10) <- c("refno", "county", "town", "n_agree", "n_disagree", "n_valid", "n_invalid", "n_ticket", "n_people", "perc_ticket", "perc_agree", "perc_disagree", "agree_disagree")
+```
+
+
+# Cleaning and summarizing
+```{r, message=FALSE}
+set.seed(100)
+ref10 %>%
+    sample_n(10)
+town_ref10 <- ref10 %>%
+    filter(!is.na(town)) %>%
+    select(refno, county, town, n_agree, n_disagree, n_valid, n_invalid, n_ticket, n_people) %>%
+    mutate(townfull = paste0(county, town)) %>%
+    mutate(perc_ticket = n_ticket / n_people,
+           perc_agree = n_agree / n_ticket,
+           perc_disagree = 1 - perc_agree)
+
+```
+
+# Joining demo and referendum data
+```{r, message=FALSE}
+town_stat %>%
+    mutate(site_id = str_replace_all(site_id, "　", "")) %>%
+    left_join(town_ref10, by=c("site_id"="townfull")) %>%
+    ggplot() + 
+    aes(elderPerc, perc_agree) + 
+    geom_jitter(alpha = 0.5)
+```
