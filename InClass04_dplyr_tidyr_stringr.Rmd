@@ -1,0 +1,312 @@
+---
+title: "InClass04_dplyir_tidyr_stringr"
+author: "Dennis Tseng"
+date: "2019/10/07"
+output: 
+    html_document:
+        theme: lumen
+        toc: true
+        number_sections: true
+        toc_float:
+          collapsed: false
+          smooth_scroll: false
+---
+---
+    
+[台大105學年度輔系榜單](https://reg227.aca.ntu.edu.tw/TMD/stuquery/doc/105%E8%BC%94%E7%B3%BB%E6%A6%9C%E5%96%AE.pdf)  
+[台大105學年度雙主修榜單](https://reg227.aca.ntu.edu.tw/TMD/stuquery/doc/105%E9%9B%99%E4%B8%BB%E4%BF%AE%E6%A6%9C%E5%96%AE.pdf)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# readr and dplyr related (if/at/all)
+
+## Loading pkgs and data
+```{r, message=FALSE}
+# load pkgs
+library(tidyverse)
+
+# load data 
+df_dmajor_105_tmp <- read_rds("data/df_dmajor_105.rds")
+df_minor_105_tmp <- read_rds("data/df_minor_105.rds")
+df_college_join <- read_rds("data/df_college_join.rds")
+```
+
+## Observe data
+```{r, message=FALSE}
+df_college_join %>% glimpse()
+df_dmajor_105_tmp %>% glimpse()
+df_minor_105_tmp %>% glimpse()
+
+df_dmajor_105_tmp %>% sample_n(10)
+```
+
+## Find NAs and deal with them
+```{r, message=FALSE}
+df_dmajor_105_tmp %>%
+    filter(is.na(ID)|is.na(dept_original)|is.na(grade)|is.na(name)|is.na(dept_dmajor))
+
+df_dmajor_105_tmp %>%
+    filter_all(any_vars(is.na(.)))
+
+df_dmajor_105_tmp %>%
+    filter_all(all_vars(is.na(.)))
+
+df_dmajor_105_tmp %>% drop_na()
+
+df_dmajor_105_tmp %>%
+    replace_na(list(ID = "unknown", grade = "100", dept_dmajor = "經濟所"))
+
+df_dmajor_105_tmp %>%
+    mutate_all(.,funs(replace_na(., "unknown")))
+
+df_dmajor_105_tmp %>% 
+    mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .)))
+
+df_dmajor_105_tmp %>%
+    mutate_at(vars(contains("dept")),funs(replace_na(., "unknown")))
+
+df_dmajor_105_tmp %>%
+    mutate_at(vars(ID, dept_original),funs(replace_na(., "unknown")))
+
+df_dmajor_105_tmp %>%
+    select_if(function(x) any(is.na(x))) %>% 
+    summarise_each(list( ~ sum(is.na(.))))
+```
+
+_if(), _at(), -all(): https://dplyr.tidyverse.org/reference/scoped.html
+tidyr missing values: https://tidyr.tidyverse.org/reference/index.html
+
+```{r, message=FALSE}
+df_dmajor_105_n_na <- df_dmajor_105_tmp %>% drop_na()
+df_minor_105_n_na <- df_minor_105_tmp %>% drop_na()
+```
+
+# dplyr related: join
+
+## 文氏圖
+```{r, message=FALSE}
+# dplyr joins
+knitr::include_graphics('assets/dplyr_joins.png')
+```
+
+## left join/right join: 想要看雙主修科系和原本學院是否相同
+
+```{r, message=FALSE}
+df_college_join
+df_minor_105_n_na %>%
+    left_join(df_college_join, by = c("dept_minor" = "dept")) 
+
+df_minor_105_n_na %>%
+    left_join(df_college_join, by = c("dept_original" = "dept")) %>%
+    left_join(df_college_join, by = c("dept_minor" = "dept")) 
+
+df_minor_final <-
+    df_minor_105_n_na %>%
+    left_join(df_college_join, by = c("dept_original" = "dept")) %>%
+    rename(college_original = college) %>%
+    left_join(df_college_join, by = c("dept_minor" = "dept")) %>%
+    rename(college_minor = college)
+
+df_dmajor_final <-
+    df_dmajor_105_n_na %>%
+    left_join(df_college_join, by = c("dept_original" = "dept")) %>%
+    rename(college_original = college) %>%
+    left_join(df_college_join, by = c("dept_dmajor" = "dept")) %>%
+    rename(college_dmajor = college)
+```
+
+## inner join: 有人同時雙主修跟輔系嗎
+```{r, message=FALSE}
+df_minor_105_n_na
+df_dmajor_105_n_na
+
+df_minor_105_n_na %>%
+    select(ID, dept_minor) %>%
+    inner_join(df_dmajor_105_n_na, by = "ID")
+
+df_dmajor_minor <- df_minor_105_n_na %>%
+    select(ID, dept_minor) %>%
+    inner_join(df_dmajor_105_n_na, by = "ID")
+```
+
+## outer join
+```{r, message=FALSE}
+df_dmajor_105_n_na %>%
+    full_join(df_minor_105_n_na)
+```
+
+## anti join
+```{r, message=FALSE}
+df_dmajor_105_n_na %>%
+    anti_join(df_minor_105_n_na)
+```
+
+more join(): https://dplyr.tidyverse.org/reference/join.html
+article: https://dplyr.tidyverse.org/articles/two-table.html
+
+# dplyr related: Basic single-table verbs
+
+## 題目一: 哪個系跟哪個院雙主修最多？
+```{r, message=FALSE}
+df_dmajor_final
+df_dmajor_final %>%
+    group_by(dept_original) %>%
+    summarise(n = n()) %>%
+    arrange(desc(n))
+df_dmajor_final %>%
+    count(dept_original, sort = T) 
+df_dmajor_final %>%
+    count(college_original, sort = T) 
+```
+
+## 題目二: 請找出雙外院人數最多跟最少的院
+```{r, message=FALSE}
+# 最多
+df_dmajor_final %>%
+    count(college_original, college_dmajor) %>%
+    filter(college_original != college_dmajor) %>%
+    arrange(n)
+
+# 最少
+df_dmajor_final %>%
+    count(college_original, college_dmajor, sort = T)
+```
+
+## 題目三: 請找出雙同院比例最高的院
+```{r, message=FALSE}
+df_dmajor_final %>%
+    count(college_original, college_dmajor, sort = T) %>%
+    group_by(college_original) %>%
+    mutate(per = n/sum(n)) %>%
+    filter(college_original == college_dmajor) %>%
+    arrange(desc(per))
+```
+
+## 題目四: 請找出每個系向外雙主修人數最多者
+
+舉例而言，國企系雙主修外系共有五人，有三人雙到財金系、一人雙到歷史系、一人雙到政治系，請給我財金系
+```{r, message=FALSE}
+df_dmajor_final %>%
+    count(dept_original, dept_dmajor, sort = T) %>%
+    group_by(dept_original) %>%
+    mutate(per = n/sum(n))
+
+df_dmajor_final %>%
+    count(dept_original, dept_dmajor, sort = T) %>%
+    group_by(dept_original) %>%
+    mutate(per = n/sum(n)) %>%
+    summarise(n_most = max(per))
+
+df_dmajor_final %>%
+    count(dept_original, dept_dmajor, sort = T) %>%
+    group_by(dept_original) %>%
+    mutate(per = n/sum(n)) %>%
+    arrange(dept_original, desc(per)) %>%
+    filter(per == max(per))
+```
+
+## 題目五: 請找出每個系向外雙主修人數第二多者
+
+舉例而言，國企系雙主修外系共有五人，有三人雙到財金系、一人雙到歷史系、一人雙到政治系，請給我歷史系、政治系
+```{r, message=FALSE}
+# df_dmajor_final %>%
+#     count(dept_original, dept_dmajor, sort = T) %>%
+#     group_by(dept_original) %>%
+#     mutate(per = n/sum(n)) %>%
+#     arrange(dept_original, desc(per)) %>%
+#     filter(per == second(per))
+
+df_dmajor_final %>%
+    count(dept_original, dept_dmajor, sort = T) %>%
+    group_by(dept_original) %>%
+    mutate(per = n/sum(n)) %>%
+    arrange(dept_original, desc(per)) %>%
+    filter(dept_original == "經濟系") %>%
+    filter(per != max(per)) %>%
+    filter(per == max(per))
+
+## 第五大的怎麼辦難不成要filter五次嗎
+df_dmajor_final %>%
+    count(dept_original, dept_dmajor, sort = T) %>%
+    group_by(dept_original) %>%
+    mutate(per = n/sum(n)) %>%
+    arrange(dept_original, desc(per)) %>%
+    filter(dept_original == "經濟系") %>%
+    mutate(dept_order = dense_rank(desc(per))) #min
+
+df_dmajor_final %>%
+    count(dept_original, dept_dmajor, sort = T) %>%
+    group_by(dept_original) %>%
+    mutate(per = n/sum(n)) %>%
+    arrange(dept_original, desc(per)) %>%
+    mutate(dept_order = dense_rank(desc(per))) %>%
+    filter(dept_order == 2)
+```
+
+more ranking: https://dplyr.tidyverse.org/reference/ranking.html
+
+# tidyr related: gather and spread
+
+## 請給我 wide data
+```{r, message=FALSE}
+df_dmajor_final_spread <- 
+    df_dmajor_final %>% 
+    count(college_original, college_dmajor) %>%
+    spread(key = college_original, value = n)
+```
+
+## 請給我 long data
+```{r, message=FALSE}
+df_dmajor_final_spread %>%
+    gather(key = college_original, value = n)
+
+df_dmajor_final_spread %>%
+    gather(key = college_original, value = n, -college_dmajor)
+```
+
+## 請幫我將ID分為入學年度、系所代號、學生次序
+```{r, message=FALSE}
+df_dmajor_final %>% 
+    separate(col = "ID", into = c("ID_year", "ID_dept", "ID_order"), sep = c(3,6,9))
+```
+
+## 請幫我再將ID拼回來，但是中間用"_"隔著
+```{r, message=FALSE}
+df_dmajor_final %>% 
+    separate(col = "ID", into = c("ID_year", "ID_dept", "ID_order"), sep = c(3,6,9)) %>%
+    unite(col = "ID", ID_year, ID_dept, ID_order, sep = "_")
+```
+
+# stringr
+
+```{r, message=FALSE}
+## 請幫我算名字長度
+df_dmajor_final %>%
+    mutate(name_length = str_length(name)) %>%
+    count(name_length)
+```
+
+## 請幫我算每個姓氏人數
+```{r, message=FALSE}
+df_dmajor_final %>%
+    mutate(name_last = str_sub(name, 1,1)) %>%
+    count(name_last, sort = T)
+```
+
+## 請幫我找出可能名字有曾或有軒的人
+```{r, message=FALSE}
+df_dmajor_final %>%
+    filter(str_detect(name, "曾|軒"))
+```
+
+## 請幫我找出可能名字 pattern 第一個字是韓或蔡的人
+舉例來說我要蔡O文, 韓O瑜，但是我不要陳O蔡
+```{r, message=FALSE}
+df_dmajor_final %>%
+    filter(str_detect(name, "韓|蔡"))
+
+df_dmajor_final %>%
+    filter(str_detect(name, "[韓蔡]O."))
+```
