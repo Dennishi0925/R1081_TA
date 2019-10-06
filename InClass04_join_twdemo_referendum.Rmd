@@ -1,6 +1,6 @@
 ---
 title: "InClass04_join_twdemo_referendum"
-author: "Jilung Hsieh"
+author: "Jilung Hsieh, modified by Dennis Tseng"
 date: "2019/10/07"
 output: 
     html_document:
